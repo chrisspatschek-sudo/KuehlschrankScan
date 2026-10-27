@@ -72,6 +72,24 @@ button:focus-visible,.shot:focus-visible,input:focus-visible{outline:3px solid v
 .row button{flex:1}
 ol.steps{margin:0;padding-left:20px;color:var(--muted);font-size:.95rem}
 .small{font-size:.85rem}
+.group.unclear h3{color:var(--warn)}
+.group.unclear .item{background:transparent;border:1px dashed var(--line);border-radius:12px;margin-bottom:6px}
+.group-note{margin:-2px 0 8px;color:var(--muted);font-size:.85rem}
+.recipes{display:flex;flex-direction:column;gap:12px}
+.basics{margin:0;color:var(--muted);font-size:.9rem}
+.recipe{background:var(--surface);border-radius:14px;border:1px solid var(--line)}
+.recipe summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.recipe summary::-webkit-details-marker{display:none}
+.recipe summary b{font-family:var(--font-display);font-weight:600;font-size:1.1rem;line-height:1.25}
+.recipe summary span{color:var(--muted);font-size:.9rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+.recipe .body{padding:0 16px 16px;display:flex;flex-direction:column;gap:10px}
+.recipe .lbl{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:.85rem;padding:3px 10px;border-radius:99px;border:1px solid var(--line)}
+.chip.have{border-color:var(--fresh);color:var(--fresh)}
+.recipe ol{margin:0;padding-left:20px}
+.recipe li+li{margin-top:4px}
+button.wide{width:100%}
 </style>
 </head>
 <body>
@@ -119,6 +137,16 @@ ol.steps{margin:0;padding-left:20px;color:var(--muted);font-size:.95rem}
     </div>
     <div id="list"></div>
   </section>
+
+  <section class="recipes">
+    <div class="head">
+      <h2>Rezeptideen<span class="badge" id="recExample">Beispiel</span></h2>
+    </div>
+    <p class="basics">Vorausgesetzt: Salz, Pfeffer, Öl, Butter, Mehl, Zucker, Zwiebeln, Knoblauch, Nudeln, Reis, Brühe und gängige Gewürze.</p>
+    <div id="recList" class="recipes"></div>
+    <button id="recBtn" class="wide">Rezepte aus meiner Liste vorschlagen</button>
+    <div class="status" id="recStatus" role="status"></div>
+  </section>
 </div>
 
 <div class="bar"><div class="in">
@@ -127,7 +155,11 @@ ol.steps{margin:0;padding-left:20px;color:var(--muted);font-size:.95rem}
 </div></div>
 
 <script>
-const ORDER=["Obst & Gemüse","Milchprodukte & Eier","Fleisch & Fisch","Getränke","Saucen & Aufstriche","Reste & Fertiges","Sonstiges"];
+const UNCLEAR="Nicht eindeutig erkannt";
+const ORDER=["Obst & Gemüse","Milchprodukte & Eier","Fleisch & Fisch","Getränke","Saucen & Aufstriche","Reste & Fertiges","Sonstiges",UNCLEAR];
+const BASICS="Salz, Pfeffer, Öl, Butter, Mehl, Zucker, Zwiebeln, Knoblauch, Nudeln, Reis, Brühe, gängige Gewürze";
+const EXAMPLE_RECIPES=[{titel:"Paprika-Rührei mit Gouda",minuten:15,vorhanden:["Eier","Paprika rot","Gouda"],grundzutaten:["Butter","Salz","Pfeffer"],
+  schritte:["Paprika würfeln und in Butter 3 Minuten anbraten.","Eier verquirlen, salzen, pfeffern und dazugeben.","Bei mittlerer Hitze stocken lassen, geriebenen Gouda darüberstreuen."]}];
 const DEFAULT_MODEL="gemini-flash-latest";
 const EXAMPLE=[
   {name:"Vollmilch",menge:"1 Packung",kategorie:"Milchprodukte & Eier"},
@@ -142,7 +174,9 @@ const store={get(k){try{return localStorage.getItem(k)}catch{return null}},
   set(k,v){try{localStorage.setItem(k,v)}catch{}},del(k){try{localStorage.removeItem(k)}catch{}}};
 
 let items=EXAMPLE, isExample=true, file=null, busy=false;
-try{const saved=JSON.parse(store.get("lastList")||"null");if(Array.isArray(saved)&&saved.length){items=saved;isExample=false}}catch{}
+let recipes=EXAMPLE_RECIPES, recExample=true;
+try{const saved=JSON.parse(store.get("lastList")||"null");if(Array.isArray(saved)&&saved.length){items=saved;isExample=false;recipes=[]}}catch{}
+try{const r=JSON.parse(store.get("lastRecipes")||"null");if(!isExample&&Array.isArray(r)&&r.length){recipes=r;recExample=false}}catch{}
 
 const getKey=()=>store.get("geminiKey")||"";
 const getModel=()=>store.get("geminiModel")||DEFAULT_MODEL;
@@ -155,8 +189,9 @@ function render(){
   const groups={};
   for(const it of items){const k=ORDER.includes(it.kategorie)?it.kategorie:"Sonstiges";(groups[k]??=[]).push(it)}
   ORDER.filter(k=>groups[k]).forEach(k=>{
-    const g=document.createElement("div");g.className="group";
+    const g=document.createElement("div");g.className="group"+(k===UNCLEAR?" unclear":"");
     const h=document.createElement("h3");h.textContent=k;g.append(h);
+    if(k===UNCLEAR){const n=document.createElement("p");n.className="group-note";n.textContent="Auf dem Foto nicht sicher zu bestimmen. Kurz selbst nachschauen.";g.append(n)}
     groups[k].forEach(it=>{
       const row=document.createElement("label");row.className="item"+(it.done?" done":"");
       const cb=document.createElement("input");cb.type="checkbox";cb.checked=!!it.done;
@@ -201,14 +236,16 @@ function shrink(f){
 
 const PROMPT="Das Bild zeigt das Innere eines Kühlschranks. Liste alle erkennbaren Lebensmittel und Getränke auf Deutsch auf. "+
   "Schätze die Menge grob (z. B. \"2 Stück\", \"1 Packung\", \"halb voll\"). Ordne jedes Teil genau einer dieser Kategorien zu: "+
-  ORDER.join(", ")+". Erfinde nichts, was nicht sichtbar ist; unklare Dinge bekommen einen vorsichtigen Namen wie \"Glas mit Soße\". "+
+  ORDER.filter(k=>k!==UNCLEAR).join(", ")+". Erfinde nichts, was nicht sichtbar ist. "+
+  "Alles, was du nicht sicher bestimmen kannst (verdeckt, unscharf, unbeschriftete Dosen, Gläser oder Boxen), bekommt die Kategorie \""+UNCLEAR+"\" "+
+  "und als Namen eine kurze Beschreibung dessen, was zu sehen ist, z. B. \"Glas mit roter Soße\" oder \"Alufolie-Päckchen\". "+
   'Antworte nur mit JSON in dieser Form: {"items":[{"name":"Vollmilch","menge":"1 Packung","kategorie":"Milchprodukte & Eier"}]}';
 
-async function askGemini(b64){
+async function askGemini(parts,temperature){
   const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(getModel())+":generateContent";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":getKey()},
-    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:"image/jpeg",data:b64}},{text:PROMPT}]}],
-      generationConfig:{responseMimeType:"application/json",temperature:0.2}})});
+    body:JSON.stringify({contents:[{parts}],
+      generationConfig:{responseMimeType:"application/json",temperature}})});
   const j=await r.json().catch(()=>({}));
   if(!r.ok){const e=new Error(j?.error?.message||("HTTP "+r.status));e.status=r.status;throw e}
   const text=(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||"").join("");
@@ -221,21 +258,69 @@ $("scan").onclick=async()=>{
   if(!getKey()){showSettings(true);status("Zuerst einmalig deinen Gemini-Schlüssel eintragen.",true);return}
   busy=true; updateScan(); status("Der Kühlschrank wird untersucht …");
   try{
-    const data=await askGemini(await shrink(file));
+    const b64=await shrink(file);
+    const data=await askGemini([{inline_data:{mime_type:"image/jpeg",data:b64}},{text:PROMPT}],0.2);
     const arr=Array.isArray(data?.items)?data.items:Array.isArray(data)?data:[];
     items=arr.filter(x=>x&&x.name).map(x=>({name:String(x.name),menge:String(x.menge??""),kategorie:String(x.kategorie??"Sonstiges")}));
     isExample=false; store.set("lastList",JSON.stringify(items)); render();
+    recipes=[]; recExample=false; store.del("lastRecipes"); renderRecipes();
     status(items.length?"Fertig. Abhaken, was du verbrauchst.":"");
-  }catch(e){
+  }catch(e){ status(errorText(e),true) }
+  finally{busy=false;updateScan()}
+};
+
+function errorText(e){
     const s=e.status;
-    if(s===400&&/API key/i.test(e.message)||s===401||s===403){status("Der Schlüssel wurde abgelehnt. Bitte prüfen und neu eintragen.",true);showSettings(true)}
-    else if(s===404){status("Das Modell „"+getModel()+"“ gibt es nicht (mehr). Unter „Schlüssel“ › Erweitert ein aktuelles Modell eintragen.",true)}
-    else if(s===429){status("Tageslimit oder zu viele Anfragen. Bitte später nochmal versuchen.",true)}
-    else if(e.message==="bild"){status("Dieses Bild kann nicht gelesen werden. Bitte ein normales Foto verwenden.",true)}
-    else if(e instanceof SyntaxError||s==="empty"){status("Die Antwort war unvollständig. Bitte nochmal tippen.",true)}
-    else if(!navigator.onLine){status("Keine Internetverbindung.",true)}
-    else{status("Fehler: "+e.message,true)}
-  }finally{busy=false;updateScan()}
+    if(s===400&&/API key/i.test(e.message)||s===401||s===403){showSettings(true);return "Der Schlüssel wurde abgelehnt. Bitte prüfen und neu eintragen."}
+    if(s===404)return "Das Modell „"+getModel()+"“ gibt es nicht (mehr). Unter „Schlüssel“ › Erweitert ein aktuelles Modell eintragen.";
+    if(s===429)return "Tageslimit oder zu viele Anfragen. Bitte später nochmal versuchen.";
+    if(e.message==="bild")return "Dieses Bild kann nicht gelesen werden. Bitte ein normales Foto verwenden.";
+    if(e instanceof SyntaxError||s==="empty")return "Die Antwort war unvollständig. Bitte nochmal tippen.";
+    if(!navigator.onLine)return "Keine Internetverbindung.";
+    return "Fehler: "+e.message;
+}
+
+function renderRecipes(){
+  $("recExample").hidden=!recExample;
+  const box=$("recList"); box.textContent="";
+  if(!recipes.length){const p=document.createElement("p");p.className="empty";
+    p.textContent=isExample?"Erst eine Liste erstellen, dann passende Rezepte vorschlagen lassen.":"Tippe unten, um kurze Rezepte aus deinem Kühlschrankinhalt zu bekommen.";box.append(p)}
+  recipes.forEach((r,i)=>{
+    const d=document.createElement("details");d.className="recipe";if(i===0)d.open=true;
+    const s=document.createElement("summary");const b=document.createElement("b");b.textContent=r.titel;
+    const t=document.createElement("span");t.textContent=r.minuten?r.minuten+" Min.":"";s.append(b,t);d.append(s);
+    const body=document.createElement("div");body.className="body";
+    const chips=(label,list,cls)=>{if(!list?.length)return;const l=document.createElement("p");l.className="lbl";l.textContent=label;
+      const c=document.createElement("div");c.className="chips";list.forEach(x=>{const e=document.createElement("span");e.className="chip "+cls;e.textContent=x;c.append(e)});body.append(l,c)};
+    chips("Aus deinem Kühlschrank",r.vorhanden,"have");
+    chips("Grundzutaten",r.grundzutaten,"");
+    const l=document.createElement("p");l.className="lbl";l.textContent="Zubereitung";
+    const ol=document.createElement("ol");(r.schritte||[]).forEach(x=>{const li=document.createElement("li");li.textContent=x;ol.append(li)});
+    body.append(l,ol);d.append(body);box.append(d)});
+  $("recBtn").textContent=recipes.length&&!recExample?"Andere Rezepte vorschlagen":"Rezepte aus meiner Liste vorschlagen";
+}
+
+$("recBtn").onclick=async()=>{
+  const rs=$("recStatus");
+  if(isExample){rs.textContent="Erst ein Foto aufnehmen und die Liste erstellen.";rs.classList.add("err");return}
+  if(!getKey()){showSettings(true);rs.textContent="Zuerst einmalig deinen Gemini-Schlüssel eintragen.";rs.classList.add("err");return}
+  const avail=items.filter(i=>!i.done&&i.kategorie!==UNCLEAR).map(i=>i.name+(i.menge?" ("+i.menge+")":""));
+  if(!avail.length){rs.textContent="Keine eindeutig erkannten Zutaten übrig.";rs.classList.add("err");return}
+  const btn=$("recBtn"); btn.disabled=true; rs.classList.remove("err"); rs.textContent="Rezepte werden gesucht …";
+  const prompt="Schlage 3 einfache, kurze Alltagsrezepte auf Deutsch vor, die man hauptsächlich aus diesen Kühlschrankzutaten kochen kann:\n"+
+    avail.join(", ")+"\n\nVorausgesetzt sind diese Grundzutaten: "+BASICS+". Nutze sonst KEINE weiteren Zutaten. "+
+    "Jedes Rezept: höchstens 30 Minuten, 3 bis 5 kurze Schritte, mindestens 2 Zutaten aus der Liste. "+
+    (recipes.length&&!recExample?"Nicht diese Rezepte wiederholen: "+recipes.map(r=>r.titel).join(", ")+". ":"")+
+    'Antworte nur mit JSON: {"rezepte":[{"titel":"…","minuten":15,"vorhanden":["Zutat aus der Liste"],"grundzutaten":["Salz"],"schritte":["…"]}]}';
+  try{
+    const data=await askGemini([{text:prompt}],0.8);
+    const arr=Array.isArray(data?.rezepte)?data.rezepte:[];
+    recipes=arr.filter(r=>r&&r.titel).map(r=>({titel:String(r.titel),minuten:Number(r.minuten)||0,
+      vorhanden:(r.vorhanden||[]).map(String),grundzutaten:(r.grundzutaten||[]).map(String),schritte:(r.schritte||[]).map(String)}));
+    recExample=false; store.set("lastRecipes",JSON.stringify(recipes)); renderRecipes();
+    rs.textContent=recipes.length?"":"Keine passenden Rezepte gefunden.";
+  }catch(e){rs.textContent=errorText(e);rs.classList.add("err")}
+  finally{btn.disabled=false}
 };
 
 $("copy").onclick=async()=>{
@@ -244,7 +329,7 @@ $("copy").onclick=async()=>{
   catch{status("Kopieren nicht möglich.",true)}
 };
 
-render(); updateScan();
+render(); renderRecipes(); updateScan();
 if(!getKey())status("Tipp: Oben auf „Schlüssel“ tippen und einmalig deinen Gemini-Schlüssel eintragen.");
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>

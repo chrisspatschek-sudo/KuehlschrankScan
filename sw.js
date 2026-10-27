@@ -1,5 +1,5 @@
 // Speichert die App-Dateien, damit sie schnell startet. Anfragen an Gemini laufen immer übers Netz.
-const CACHE = "kuehlschrank-v1";
+const CACHE = "kuehlschrank-v2";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
